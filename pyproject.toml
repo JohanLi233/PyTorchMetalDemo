@@ -1,0 +1,7 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = [
+  "setuptools>=70.0.0",
+  "wheel",
+  "torch>=2.0.0", # 根据您的需求调整版本
+]
