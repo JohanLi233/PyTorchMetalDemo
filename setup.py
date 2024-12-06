@@ -2,7 +2,7 @@ from setuptools import setup
 from torch.utils import cpp_extension
 
 setup(
-    name="my_op",
+    name="custom_fill",
     version="0.0.0",
     description="A custom PyTorch MPS extension.",
     ext_modules=[

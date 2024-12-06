@@ -20,6 +20,8 @@ PyTorchMetalDemo is a demonstration project showcasing how to use Apple's Metal 
    git clone https://github.com/JohanLi233/PyTorchMetalDemo.git
    
    cd PyTorchMetalDemo
+
+   pip install -r requirements.txt
    
    pip install -e .
    
