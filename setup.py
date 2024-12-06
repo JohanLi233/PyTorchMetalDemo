@@ -12,10 +12,10 @@ setup(
             extra_compile_args=[
                 "-arch",
                 "arm64",
-                "-mmacosx-version-min=15.0",
+                "-mmacosx-version-min=12.0",
             ],
             extra_link_args=[
-                "-mmacosx-version-min=15.0",
+                "-mmacosx-version-min=12.0",
             ],
         )
     ],

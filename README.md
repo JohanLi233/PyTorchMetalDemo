@@ -13,6 +13,10 @@ PyTorchMetalDemo is a demonstration project showcasing how to use Apple's Metal 
 - PyTorch with MPS backend support
 - Xcode command line tools
 
+## Metal CPP
+
+The metal-cpp package was downloaded from [here](https://developer.apple.com/metal/cpp/#:~:text=1.%20Prepare%20your%20Mac.). If you are not using macOS 15, please download the appropriate version from [this link](https://developer.apple.com/metal/cpp/#:~:text=1.%20Prepare%20your%20Mac.).
+
 ## Usage
 
 ``` bash
