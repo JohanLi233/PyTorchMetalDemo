@@ -15,8 +15,6 @@ PyTorchMetalDemo is a demonstration project showcasing how to use Apple's Metal 
 
 ## Usage
 
-Clone the repository:
-
 ``` bash
 
    git clone https://github.com/JohanLi233/PyTorchMetalDemo.git
