@@ -17,6 +17,8 @@ PyTorchMetalDemo is a demonstration project showcasing how to use Apple's Metal 
 
 Clone the repository:
 
+``` bash
+
    git clone https://github.com/JohanLi233/PyTorchMetalDemo.git
    
    cd PyTorchMetalDemo
@@ -24,4 +26,4 @@ Clone the repository:
    pip install -e .
    
    python test.py
-   
+```
