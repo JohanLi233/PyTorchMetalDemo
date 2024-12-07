@@ -5,6 +5,7 @@ PyTorchMetalDemo is a demonstration project showcasing how to use Apple's Metal 
 ## Features
 
 - Implements a custom tensor fill operation using Metal.
+- Implements a custom tensor add operation using Metal.
 - Demonstrates integration of Metal with PyTorch.
 
 ## Requirements

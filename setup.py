@@ -2,13 +2,13 @@ from setuptools import setup
 from torch.utils import cpp_extension
 
 setup(
-    name="custom_fill",
+    name="custom_op",
     version="0.0.0",
     description="A custom PyTorch MPS extension.",
     ext_modules=[
         cpp_extension.CppExtension(
-            "custom_fill",
-            ["CustomFill.cpp"],
+            "custom_op",
+            ["CustomOP.cpp"],
             extra_compile_args=[
                 "-arch",
                 "arm64",
