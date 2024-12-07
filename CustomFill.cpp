@@ -105,9 +105,6 @@ torch::Tensor custom_fill(torch::Tensor input, float fill_val)
 
   TORCH_CHECK(inputBuffer && fillValBuffer && sizeBuffer, "Unable to create buffers");
 
-  // Copy input data to Metal buffer
-  memcpy(inputBuffer->contents(), input.data_ptr(), numElements * sizeof(float));
-
   // Copy fill value to buffer
   float *fillValPtr = static_cast<float *>(fillValBuffer->contents());
   *fillValPtr = fill_val;
