@@ -247,7 +247,7 @@ torch::Tensor custom_fill(torch::Tensor input, float fill_val)
   commandBuffer->waitUntilCompleted();
 
   // Create a new tensor from the output buffer.
-  // We from_blob() on CPU and then move it back to MPS for consistency.
+  // Use from_blob() on CPU and then move it back to MPS for consistency.
   torch::Tensor outputTensor = torch::from_blob(
                                    outputBuffer->contents(), shape, torch::kFloat)
                                    .clone()
