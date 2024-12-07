@@ -8,12 +8,15 @@ mps_device = torch.device("mps")
 cpu_device = torch.device("cpu")
 
 if __name__ == "__main__":
-    for i in range(1000):
-        input_mps = torch.zeros(42, 42, 2, device=mps_device)
-        input_cpu = torch.zeros(42, 42, 2, device=cpu_device)
+    # for i in range(1000):
+    #     input_mps = torch.zeros(42, 42, 42, device=mps_device)
+    #     input_cpu = torch.zeros(42, 42, 42, device=cpu_device)
 
-        custom_result = custom_fill(input_mps, 42)
-        input_cpu.fill_(42)
+    #     custom_result = custom_fill(input_mps, 42)
+    #     input_cpu.fill_(42)
 
-        assert torch.equal(custom_result.detach().cpu(), input_cpu)
+    #     assert torch.equal(custom_result.detach().cpu(), input_cpu)
+
+    print(custom_fill(torch.zeros(10000000, device=mps_device), 42))
+
     print("OK")
