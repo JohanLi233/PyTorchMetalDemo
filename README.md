@@ -14,7 +14,7 @@ PyTorchMetalDemo is a demonstration project showcasing how to use Apple's Metal 
 - PyTorch with MPS backend support
 - Xcode command line tools
 - Python 3.12
-- uv package manager (安装指南：https://github.com/astral-sh/uv) or any other python package manager
+- uv package manager (https://github.com/astral-sh/uv) or any other python package manager
 
 ## Metal CPP
 
