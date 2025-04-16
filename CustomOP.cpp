@@ -149,64 +149,53 @@ void calculateThreadGroups(MTL::ComputePipelineState* pipelineState, int64_t num
   threadgroups = (static_cast<uint>(numElements) + threadsPerThreadgroup - 1) / threadsPerThreadgroup;
 }
 
-// Custom add operation implementation
-torch::Tensor custom_add(torch::Tensor input1, torch::Tensor input2)
-{
-  TORCH_CHECK(input1.device().is_mps(), "Input1 must be an MPS tensor");
-  TORCH_CHECK(input2.device().is_mps(), "Input2 must be an MPS tensor");
-  TORCH_CHECK(input1.dtype() == torch::kFloat && input2.dtype() == torch::kFloat,
-              "Input tensors must be of float type");
-  TORCH_CHECK(input1.sizes() == input2.sizes(), "Input tensors must have the same shape");
+// Helper function: Check tensor constraints
+void checkTensorConstraints(const torch::Tensor& tensor, bool checkMPS = true, bool checkFloat = true) {
+  if (checkMPS) {
+    TORCH_CHECK(tensor.device().is_mps(), "Tensor must be an MPS tensor");
+  }
+  if (checkFloat) {
+    TORCH_CHECK(tensor.dtype() == torch::kFloat, "Tensor must be of float type");
+  }
+}
 
-  auto shape = input1.sizes();
-  int64_t numElements = input1.numel();
+// Helper function: Create Metal buffer
+MTL::Buffer* createMetalBuffer(MTL::Device* device, size_t size, MTL::ResourceOptions options = MTL::ResourceStorageModeShared) {
+  MTL::Buffer* buffer = device->newBuffer(size, options);
+  if (!buffer) {
+    throw std::runtime_error("Unable to create Metal buffer");
+  }
+  return buffer;
+}
+
+// Helper function: Copy tensor data to Metal buffer
+void copyTensorToBuffer(const torch::Tensor& tensor, MTL::Buffer* buffer, int64_t numElements) {
+  torch::Tensor tensor_cpu = tensor.to(torch::kCPU);
+  float* bufferPtr = static_cast<float*>(buffer->contents());
+  std::memcpy(bufferPtr, tensor_cpu.data_ptr<float>(), numElements * sizeof(float));
+}
+
+// Helper function: Execute Metal computation
+torch::Tensor executeMetalComputation(
+    const std::string& kernelName,
+    std::vector<MTL::Buffer*> buffers,
+    torch::IntArrayRef shape,
+    int64_t numElements,
+    const torch::Device& device) {
   
   try {
-    // Get Metal context
+    // Get Metal context and pipeline state
     MetalContext& context = MetalContext::getInstance();
-    MTL::Device* device = context.getDevice();
-    
-    // Allocate buffers
-    MTL::Buffer* in1Buffer = device->newBuffer(numElements * sizeof(float), MTL::ResourceStorageModeShared);
-    MTL::Buffer* in2Buffer = device->newBuffer(numElements * sizeof(float), MTL::ResourceStorageModeShared);
-    MTL::Buffer* outBuffer = device->newBuffer(numElements * sizeof(float), MTL::ResourceStorageModeShared);
-    MTL::Buffer* sizeBuffer = device->newBuffer(sizeof(uint), MTL::ResourceStorageModeShared);
-    
-    if (!in1Buffer || !in2Buffer || !outBuffer || !sizeBuffer) {
-      if (in1Buffer) in1Buffer->release();
-      if (in2Buffer) in2Buffer->release();
-      if (outBuffer) outBuffer->release();
-      if (sizeBuffer) sizeBuffer->release();
-      throw std::runtime_error("Unable to create buffers");
-    }
-    
-    // Copy input data into the Metal buffers
-    {
-      torch::Tensor input1_cpu = input1.to(torch::kCPU);
-      torch::Tensor input2_cpu = input2.to(torch::kCPU);
-      
-      float* in1Ptr = static_cast<float*>(in1Buffer->contents());
-      float* in2Ptr = static_cast<float*>(in2Buffer->contents());
-      std::memcpy(in1Ptr, input1_cpu.data_ptr<float>(), numElements * sizeof(float));
-      std::memcpy(in2Ptr, input2_cpu.data_ptr<float>(), numElements * sizeof(float));
-    }
-    
-    // Set the size
-    uint* sizePtr = static_cast<uint*>(sizeBuffer->contents());
-    *sizePtr = static_cast<uint>(numElements);
-    
-    // Get compute pipeline state
-    MTL::ComputePipelineState* pipelineState = context.getPipelineState("custom_add");
+    MTL::ComputePipelineState* pipelineState = context.getPipelineState(kernelName);
     
     // Create command buffer and encoder
     auto [commandBuffer, encoder] = context.createCommandBufferAndEncoder();
     
     // Set pipeline and buffers
     encoder->setComputePipelineState(pipelineState);
-    encoder->setBuffer(in1Buffer, 0, 0);
-    encoder->setBuffer(in2Buffer, 0, 1);
-    encoder->setBuffer(outBuffer, 0, 2);
-    encoder->setBuffer(sizeBuffer, 0, 3);
+    for (size_t i = 0; i < buffers.size(); i++) {
+      encoder->setBuffer(buffers[i], 0, i);
+    }
     
     // Calculate and set thread groups configuration
     uint threadgroups, threadsPerThreadgroup;
@@ -218,21 +207,65 @@ torch::Tensor custom_add(torch::Tensor input1, torch::Tensor input2)
     commandBuffer->commit();
     commandBuffer->waitUntilCompleted();
     
-    // Copy result back into a new MPS tensor
+    // Copy result back into a new MPS tensor (assuming output is at index 2 for binary ops, index 0 for unary ops)
+    MTL::Buffer* outputBuffer = (kernelName == "custom_fill") ? buffers[0] : buffers[2];
     torch::Tensor outputTensor = torch::from_blob(
-        outBuffer->contents(), shape, torch::kFloat)
+        outputBuffer->contents(), shape, torch::kFloat)
         .clone()
-        .to(input1.device());
+        .to(device);
     
     // Release Metal resources
-    in1Buffer->release();
-    in2Buffer->release();
-    outBuffer->release();
-    sizeBuffer->release();
+    for (auto* buffer : buffers) {
+      buffer->release();
+    }
     encoder->release();
     commandBuffer->release();
     
     return outputTensor;
+  } catch (const std::exception& e) {
+    // Clean up buffers on error
+    for (auto* buffer : buffers) {
+      buffer->release();
+    }
+    std::cerr << "Metal execution error: " << e.what() << std::endl;
+    throw; // Re-throw the exception
+  }
+}
+
+// Custom add operation implementation
+torch::Tensor custom_add(torch::Tensor input1, torch::Tensor input2)
+{
+  // Validate inputs
+  checkTensorConstraints(input1);
+  checkTensorConstraints(input2);
+  TORCH_CHECK(input1.sizes() == input2.sizes(), "Input tensors must have the same shape");
+
+  auto shape = input1.sizes();
+  int64_t numElements = input1.numel();
+  
+  try {
+    // Get Metal context
+    MetalContext& context = MetalContext::getInstance();
+    MTL::Device* device = context.getDevice();
+    
+    // Allocate buffers
+    MTL::Buffer* in1Buffer = createMetalBuffer(device, numElements * sizeof(float));
+    MTL::Buffer* in2Buffer = createMetalBuffer(device, numElements * sizeof(float));
+    MTL::Buffer* outBuffer = createMetalBuffer(device, numElements * sizeof(float));
+    MTL::Buffer* sizeBuffer = createMetalBuffer(device, sizeof(uint));
+    
+    // Copy input data into the Metal buffers
+    copyTensorToBuffer(input1, in1Buffer, numElements);
+    copyTensorToBuffer(input2, in2Buffer, numElements);
+    
+    // Set the size
+    uint* sizePtr = static_cast<uint*>(sizeBuffer->contents());
+    *sizePtr = static_cast<uint>(numElements);
+    
+    // Execute computation
+    std::vector<MTL::Buffer*> buffers = {in1Buffer, in2Buffer, outBuffer, sizeBuffer};
+    return executeMetalComputation("custom_add", buffers, shape, numElements, input1.device());
+    
   } catch (const std::exception& e) {
     std::cerr << "Metal execution error: " << e.what() << std::endl;
     throw; // Re-throw the exception
@@ -243,8 +276,7 @@ torch::Tensor custom_add(torch::Tensor input1, torch::Tensor input2)
 torch::Tensor custom_fill(torch::Tensor input, float fill_val)
 {
   // Ensure the input tensor is on the MPS device and is float type
-  TORCH_CHECK(input.device().is_mps(), "Input must be an MPS tensor");
-  TORCH_CHECK(input.dtype() == torch::kFloat, "Input tensor must be of float type");
+  checkTensorConstraints(input);
   
   auto shape = input.sizes();
   int64_t numElements = input.numel();
@@ -255,20 +287,10 @@ torch::Tensor custom_fill(torch::Tensor input, float fill_val)
     MetalContext& context = MetalContext::getInstance();
     MTL::Device* device = context.getDevice();
     
-    // Create Metal buffers:
-    // - outputBuffer: Will store the filled values
-    // - fillValBuffer: Holds the fill value
-    // - sizeBuffer: Holds the number of elements
-    MTL::Buffer* outputBuffer = device->newBuffer(numElements * sizeof(float), MTL::ResourceStorageModeShared);
-    MTL::Buffer* fillValBuffer = device->newBuffer(sizeof(float), MTL::ResourceStorageModeShared);
-    MTL::Buffer* sizeBuffer = device->newBuffer(sizeof(uint), MTL::ResourceStorageModeShared);
-    
-    if (!outputBuffer || !fillValBuffer || !sizeBuffer) {
-      if (outputBuffer) outputBuffer->release();
-      if (fillValBuffer) fillValBuffer->release();
-      if (sizeBuffer) sizeBuffer->release();
-      throw std::runtime_error("Unable to create required buffers");
-    }
+    // Create Metal buffers
+    MTL::Buffer* outputBuffer = createMetalBuffer(device, numElements * sizeof(float));
+    MTL::Buffer* fillValBuffer = createMetalBuffer(device, sizeof(float));
+    MTL::Buffer* sizeBuffer = createMetalBuffer(device, sizeof(uint));
     
     // Initialize the fill value
     float* fillValPtr = static_cast<float*>(fillValBuffer->contents());
@@ -278,43 +300,50 @@ torch::Tensor custom_fill(torch::Tensor input, float fill_val)
     uint* sizePtr = static_cast<uint*>(sizeBuffer->contents());
     *sizePtr = static_cast<uint>(numElements);
     
-    // Get compute pipeline state
-    MTL::ComputePipelineState* pipelineState = context.getPipelineState("custom_fill");
+    // Execute computation
+    std::vector<MTL::Buffer*> buffers = {outputBuffer, fillValBuffer, sizeBuffer};
+    return executeMetalComputation("custom_fill", buffers, shape, numElements, input.device());
     
-    // Create command buffer and encoder
-    auto [commandBuffer, encoder] = context.createCommandBufferAndEncoder();
+  } catch (const std::exception& e) {
+    std::cerr << "Metal execution error: " << e.what() << std::endl;
+    throw; // Re-throw the exception
+  }
+}
+
+// Custom multiply operation implementation
+torch::Tensor custom_multiply(torch::Tensor input1, torch::Tensor input2)
+{
+  // Validate inputs
+  checkTensorConstraints(input1);
+  checkTensorConstraints(input2);
+  TORCH_CHECK(input1.sizes() == input2.sizes(), "Input tensors must have the same shape");
+
+  auto shape = input1.sizes();
+  int64_t numElements = input1.numel();
+  
+  try {
+    // Get Metal context
+    MetalContext& context = MetalContext::getInstance();
+    MTL::Device* device = context.getDevice();
     
-    // Set up the compute command encoder
-    encoder->setComputePipelineState(pipelineState);
-    encoder->setBuffer(outputBuffer, 0, 0);  // output data
-    encoder->setBuffer(fillValBuffer, 0, 1); // fill_val
-    encoder->setBuffer(sizeBuffer, 0, 2);    // data_size
+    // Allocate buffers
+    MTL::Buffer* in1Buffer = createMetalBuffer(device, numElements * sizeof(float));
+    MTL::Buffer* in2Buffer = createMetalBuffer(device, numElements * sizeof(float));
+    MTL::Buffer* outBuffer = createMetalBuffer(device, numElements * sizeof(float));
+    MTL::Buffer* sizeBuffer = createMetalBuffer(device, sizeof(uint));
     
-    // Determine threadgroup configuration
-    uint threadgroups, threadsPerThreadgroup;
-    calculateThreadGroups(pipelineState, numElements, threadgroups, threadsPerThreadgroup);
-    encoder->dispatchThreadgroups(MTL::Size(threadgroups, 1, 1), MTL::Size(threadsPerThreadgroup, 1, 1));
-    encoder->endEncoding();
+    // Copy input data into the Metal buffers
+    copyTensorToBuffer(input1, in1Buffer, numElements);
+    copyTensorToBuffer(input2, in2Buffer, numElements);
     
-    // Commit and wait for completion
-    commandBuffer->commit();
-    commandBuffer->waitUntilCompleted();
+    // Set the size
+    uint* sizePtr = static_cast<uint*>(sizeBuffer->contents());
+    *sizePtr = static_cast<uint>(numElements);
     
-    // Create a new tensor from the output buffer.
-    // Use from_blob() on CPU and then move it back to MPS for consistency.
-    torch::Tensor outputTensor = torch::from_blob(
-        outputBuffer->contents(), shape, torch::kFloat)
-        .clone()
-        .to(input.device());
+    // Execute computation
+    std::vector<MTL::Buffer*> buffers = {in1Buffer, in2Buffer, outBuffer, sizeBuffer};
+    return executeMetalComputation("custom_multiply", buffers, shape, numElements, input1.device());
     
-    // Release Metal resources
-    outputBuffer->release();
-    fillValBuffer->release();
-    sizeBuffer->release();
-    encoder->release();
-    commandBuffer->release();
-    
-    return outputTensor;
   } catch (const std::exception& e) {
     std::cerr << "Metal execution error: " << e.what() << std::endl;
     throw; // Re-throw the exception
@@ -325,4 +354,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
   m.def("custom_fill", &custom_fill, "Custom fill function for MPS");
   m.def("custom_add", &custom_add, "Custom add function for MPS");
+  m.def("custom_multiply", &custom_multiply, "Custom multiply function for MPS");
 }

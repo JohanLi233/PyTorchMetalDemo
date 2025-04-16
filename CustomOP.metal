@@ -11,9 +11,7 @@ kernel void custom_fill(
     uint id [[thread_position_in_grid]]
 )
 {
-    if (id < data_size) {
-        data[id] = fill_val;
-    }
+    data[id] = fill_val;
 }
 
 kernel void custom_add(device const float* in1 [[buffer(0)]],
@@ -21,8 +19,14 @@ kernel void custom_add(device const float* in1 [[buffer(0)]],
                        device float* out    [[buffer(2)]],
                        constant uint& data_size [[buffer(3)]],
                        uint gid [[thread_position_in_grid]]) {
-    if (gid < data_size) {
-        out[gid] = in1[gid] + in2[gid];
-    }
+    out[gid] = in1[gid] + in2[gid];
+}
+
+kernel void custom_multiply(device const float* in1 [[buffer(0)]],
+                           device const float* in2 [[buffer(1)]],
+                           device float* out    [[buffer(2)]],
+                           constant uint& data_size [[buffer(3)]],
+                           uint gid [[thread_position_in_grid]]) {
+    out[gid] = in1[gid] * in2[gid];
 }
 )";
