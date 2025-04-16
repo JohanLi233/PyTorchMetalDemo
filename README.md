@@ -13,6 +13,8 @@ PyTorchMetalDemo is a demonstration project showcasing how to use Apple's Metal 
 - macOS with Metal support
 - PyTorch with MPS backend support
 - Xcode command line tools
+- Python 3.12
+- uv package manager (安装指南：https://github.com/astral-sh/uv) or any other python package manager
 
 ## Metal CPP
 
@@ -26,9 +28,13 @@ The metal-cpp package was downloaded from [here](https://developer.apple.com/met
    
    cd PyTorchMetalDemo
 
-   pip install -r requirements.txt
+   # create venv
+   uv venv --python=3.12
+   source .venv/bin/activate
+
+   uv pip install -r requirements.txt
    
-   pip install -e .
+   uv pip install -e .
    
    python test.py
 ```
